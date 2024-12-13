@@ -6,9 +6,19 @@
 #include <linux/skbuff.h>
 #include <linux/if_ether.h>
 
-#define NETDEV "enp0s31f6"
-//#define NETDEV "lo"
 
+
+int init_net_dev(char *name, struct net_device **dev)
+{
+    // Find the network device
+    *dev = dev_get_by_name(&init_net, name);
+    if (!dev) {
+        printk(KERN_ERR "Device not found\n");
+        return -ENODEV;
+    }
+
+    return 0;
+}
 
 int send_canfd_frame(struct net_device *dev, struct canfd_frame *cfd)
 {
@@ -34,7 +44,7 @@ int send_canfd_frame(struct net_device *dev, struct canfd_frame *cfd)
 
 
 
-int send_can_frame(struct net_device *devin, struct can_frame *cf)
+int send_can_frame(struct net_device *dev, struct can_frame *cf)
 {
     uint16_t datalen=0;
  	canid_t id = cf->can_id;
@@ -57,17 +67,9 @@ int send_can_frame(struct net_device *devin, struct can_frame *cf)
     printk(KERN_CONT "\n");
 
     //Prepare ethernet
-    struct net_device *dev;
     struct sk_buff *skb;
     unsigned char dest_mac[ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff}; // Broadcast MAC address
     
-
-    // Find the network device
-    dev = dev_get_by_name(&init_net, NETDEV);
-    if (!dev) {
-        printk(KERN_ERR "Device not found\n");
-        return -ENODEV;
-    }
 
     // Allocate a socket buffer
     skb = alloc_skb(ETH_HLEN + cf->len, GFP_KERNEL);

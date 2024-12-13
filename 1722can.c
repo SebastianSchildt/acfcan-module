@@ -17,6 +17,9 @@
 
 #define DRV_NAME "acfcan"
 
+#define NETDEV "enp0s31f6"
+//#define NETDEV "lo"
+
 // Module metadata
 MODULE_AUTHOR("Sebastian Schildt");
 MODULE_DESCRIPTION("IEEE-1722 ACF-CAN bridge");
@@ -24,6 +27,11 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_ALIAS_RTNL_LINK(DRV_NAME);
 
 char *version = "2016";
+
+
+//We keep holding to this, becasue without it life does not make sense for acfcan
+//Issue: This is currently global to the module, shoudl be per iface
+static struct net_device *ether_dev;
 
 static void acfcan_rx(struct sk_buff *skb, struct net_device *dev)
 {
@@ -60,11 +68,11 @@ static netdev_tx_t acfcan_tx(struct sk_buff *skb, struct net_device *dev)
 
 	if (can_is_can_skb(skb))
 	{
-		send_can_frame(NULL,(struct can_frame *)skb->data);
+		send_can_frame(ether_dev,(struct can_frame *)skb->data);
 	}
 	else if (can_is_canfd_skb(skb))
 	{
-		send_canfd_frame(NULL,(struct canfd_frame *)skb->data);
+		send_canfd_frame(ether_dev,(struct canfd_frame *)skb->data);
 	}
 	else
 	{
@@ -167,10 +175,15 @@ static int __init init_acfcan(void)
 		pr_info("Unsupported 1722 version %s\n", version);
 		return -1;
 	}
+	int rc = init_net_dev(NETDEV, &ether_dev);
+	if (rc !=0) {
+		printk(KERN_ERR "Failed to initialize network device\n");
+		return rc;
+	}
+
 
 	return rtnl_link_register(&acfcan_link_ops);
 
-	return 0;
 }
 
 static void __exit cleanup_acfcan(void)

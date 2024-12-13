@@ -84,4 +84,4 @@ __used __section("__versions") =
 MODULE_INFO(depends, "can-dev");
 
 
-MODULE_INFO(srcversion, "4C5D6F5A27FCC838012B8D4");
+MODULE_INFO(srcversion, "50B29C4D071A11FBA29081D");
