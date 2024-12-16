@@ -61,6 +61,8 @@ __used __section("__versions") =
 	"init_net\0\0\0\0"
 	"\x14\x00\x00\x00\x19\x03\xdd\x43"
 	"skb_push\0\0\0\0"
+	"\x1c\x00\x00\x00\xbe\x0c\xbf\xd8"
+	"sysfs_create_group\0\0"
 	"\x18\x00\x00\x00\x4c\xbc\x0a\x6d"
 	"param_ops_charp\0"
 	"\x1c\x00\x00\x00\xca\x39\x82\x5b"
@@ -77,6 +79,8 @@ __used __section("__versions") =
 	"skb_clone_tx_timestamp\0\0"
 	"\x20\x00\x00\x00\xd6\x3c\xdb\x9e"
 	"ethtool_op_get_ts_info\0\0"
+	"\x1c\x00\x00\x00\xdd\x14\x4d\xd2"
+	"register_netdevice\0\0"
 	"\x18\x00\x00\x00\xd7\xd3\x75\x6d"
 	"module_layout\0\0\0"
 	"\x00\x00\x00\x00\x00\x00\x00\x00";
@@ -84,4 +88,4 @@ __used __section("__versions") =
 MODULE_INFO(depends, "can-dev");
 
 
-MODULE_INFO(srcversion, "50B29C4D071A11FBA29081D");
+MODULE_INFO(srcversion, "9C29564FCD18DB07A48EDB6");

@@ -11,26 +11,54 @@
 #include <linux/can/dev.h>
 #include <linux/can/skb.h>
 #include <net/rtnetlink.h>
+#include <linux/sysfs.h>
+
 
 #include "1722ethernet.h"
-
+#include "acfcandev.h"
 
 #define DRV_NAME "acfcan"
 
 #define NETDEV "enp0s31f6"
-//#define NETDEV "lo"
+// #define NETDEV "lo"
 
 // Module metadata
 MODULE_AUTHOR("Sebastian Schildt");
 MODULE_DESCRIPTION("IEEE-1722 ACF-CAN bridge");
+
 MODULE_LICENSE("Dual BSD/GPL");
+// MODULE_LICENSE("Proprieatary");
+
 MODULE_ALIAS_RTNL_LINK(DRV_NAME);
 
 char *version = "2016";
 
+static ssize_t dstmac_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "Custom value\n");
+}
 
-//We keep holding to this, becasue without it life does not make sense for acfcan
-//Issue: This is currently global to the module, shoudl be per iface
+static ssize_t dstmac_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	// Handle the input value here
+	printk(KERN_INFO "Custom store: %s\n", buf);
+	return count;
+}
+static DEVICE_ATTR_RW(dstmac);
+
+static struct attribute *dev_attrs[] = {
+    &dev_attr_dstmac.attr,
+    NULL, /* NULL-terminated list */
+};
+
+static struct attribute_group dev_attr_group = {
+    .name = "acfcan", /* Subdirectory name in sysfs */
+    .attrs = (struct attribute **)dev_attrs,
+};
+
+
+// We keep holding to this, becasue without it life does not make sense for acfcan
+// Issue: This is currently global to the module, shoudl be per iface
 static struct net_device *ether_dev;
 
 static void acfcan_rx(struct sk_buff *skb, struct net_device *dev)
@@ -68,17 +96,16 @@ static netdev_tx_t acfcan_tx(struct sk_buff *skb, struct net_device *dev)
 
 	if (can_is_can_skb(skb))
 	{
-		send_can_frame(ether_dev,(struct can_frame *)skb->data);
+		send_can_frame(ether_dev, dev,  (struct can_frame *)skb->data);
 	}
 	else if (can_is_canfd_skb(skb))
 	{
-		send_canfd_frame(ether_dev,(struct canfd_frame *)skb->data);
+		send_canfd_frame(ether_dev, dev, (struct canfd_frame *)skb->data);
 	}
 	else
 	{
 		printk(KERN_INFO "Packet is not a known CAN packet\n");
 	}
-
 
 	if (!echo)
 	{
@@ -137,6 +164,8 @@ static const struct ethtool_ops acfcan_ethtool_ops = {
 	.get_ts_info = ethtool_op_get_ts_info,
 };
 
+
+// The default stuff. Newlink can do more 
 static void acfcan_setup(struct net_device *dev)
 {
 	bool echo = false;
@@ -148,6 +177,10 @@ static void acfcan_setup(struct net_device *dev)
 	dev->flags = IFF_NOARP;
 	can_set_ml_priv(dev, netdev_priv(dev));
 
+    void *canpriv = can_get_ml_priv(dev);
+	printk(KERN_INFO "Setting up device %s, priv is at %p \n", dev->name, canpriv);
+
+
 	/* set flags according to driver capabilities */
 	if (echo)
 		dev->flags |= IFF_ECHO;
@@ -155,12 +188,56 @@ static void acfcan_setup(struct net_device *dev)
 	dev->netdev_ops = &acfcan_netdev_ops;
 	dev->ethtool_ops = &acfcan_ethtool_ops;
 	dev->needs_free_netdev = true;
+
+	struct acfcan_cfg *cfg = get_acfcan_cfg(dev);
+	cfg->streamid = 0x1234;
+	cfg->dstmac[0] = 0xff;
+	cfg->dstmac[1] = 0xff;
+	cfg->dstmac[2] = 0xff;
+	cfg->dstmac[3] = 0xff;
+	cfg->dstmac[4] = 0xff;
+	cfg->dstmac[5] = 0xff;
 }
 
+static void acfcan_remove(struct net_device *dev)
+{
+	// Remove the custom sysfs attribute
+	device_remove_file(&dev->dev, &dev_attr_dstmac);
+}
+
+static int acfcan_newlink(struct net *net, struct net_device *dev,
+                      struct nlattr *tb[], struct nlattr *data[],
+                      struct netlink_ext_ack *extack)
+{
+
+
+
+    void *canpriv = can_get_ml_priv(dev);
+	printk(KERN_INFO "Newlink for device %s, priv is at %p \n", dev->name, canpriv);
+
+   //Need a new interface
+	int err = register_netdevice(dev);
+
+    if (err) {
+        printk(KERN_ERR "Failed to register netdevice\n");
+        return err;
+    }
+
+	printk(KERN_INFO "Creating group for device %s\n", dev->name);
+	int ret = sysfs_create_group(&dev->dev.kobj, &dev_attr_group);
+    if (ret) {
+        pr_err("Failed to create sysfs group for net_device\n");
+    }
+	
+	return 0;
+}
+
+//	.dellink = acfcan_remove, ?
 static struct rtnl_link_ops acfcan_link_ops __read_mostly = {
 	.kind = DRV_NAME,
-	.priv_size = sizeof(struct can_ml_priv),
+	.priv_size = sizeof(struct can_ml_priv)+sizeof(struct acfcan_cfg),
 	.setup = acfcan_setup,
+	.newlink = acfcan_newlink,
 };
 
 static int __init init_acfcan(void)
@@ -176,14 +253,13 @@ static int __init init_acfcan(void)
 		return -1;
 	}
 	int rc = init_net_dev(NETDEV, &ether_dev);
-	if (rc !=0) {
+	if (rc != 0)
+	{
 		printk(KERN_ERR "Failed to initialize network device\n");
 		return rc;
 	}
 
-
 	return rtnl_link_register(&acfcan_link_ops);
-
 }
 
 static void __exit cleanup_acfcan(void)
