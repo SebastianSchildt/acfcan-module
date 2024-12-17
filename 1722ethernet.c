@@ -44,10 +44,10 @@ int send_canfd_frame(struct net_device *ether_dev, struct net_device *can_dev, s
     struct acfcan_cfg *cfg = get_acfcan_cfg(can_dev);
     void *canpriv = can_get_ml_priv(can_dev);
     
-    printk(KERN_INFO "can Pointer is %i\n", (unsigned int)canpriv);
-    printk(KERN_INFO "My  Pointer is %i, sizeof can priv is %i \n", (unsigned int)cfg, sizeof(struct can_ml_priv));
+    //printk(KERN_INFO "can Pointer is %i\n", (unsigned int)canpriv);
+    //printk(KERN_INFO "My  Pointer is %i, sizeof can priv is %i \n", (unsigned int)cfg, sizeof(struct can_ml_priv));
     int calc = (__u8 *)(canpriv)+sizeof(struct can_ml_priv);
-    printk(KERN_INFO "My  data at %p\n", calc);
+    //printk(KERN_INFO "My  data at %p\n", calc);
 
 
     __u8 *mac = cfg->dstmac;

@@ -35,14 +35,31 @@ char *version = "2016";
 
 static ssize_t dstmac_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "Custom value\n");
+	struct net_device *net_dev = to_net_dev(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
+
+	return sprintf(buf, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx", cfg->dstmac[0],cfg->dstmac[1],cfg->dstmac[2],cfg->dstmac[3],cfg->dstmac[4],cfg->dstmac[5]);
 }
 
+//todo: filter out newlines from echo? Best pattern here?
 static ssize_t dstmac_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
+	if (count == 1 && *buf == '\n') {
+		return 1;
+	}
+	struct net_device *net_dev = to_net_dev(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
+
 	// Handle the input value here
-	printk(KERN_INFO "Custom store: %s\n", buf);
-	return count;
+	__u8 newmac[6] = {0,1,2,3,4,5};
+	int rc = sscanf(buf,"%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",&newmac[0],&newmac[1],&newmac[2],&newmac[3],&newmac[4],&newmac[5]);
+	if (rc != 6) {
+		printk(KERN_INFO "ACF-CAN Can not set destination MAC for %s. to %s\n", net_dev->name,buf);
+		return count;
+	}
+	memcpy(cfg->dstmac, newmac, 6);
+	printk(KERN_INFO "ACF-CAN: Setting destination MAC for %s to %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx \n", net_dev->name, newmac[0],newmac[1],newmac[2],newmac[3],newmac[4],newmac[5]);
+	return 17;
 }
 static DEVICE_ATTR_RW(dstmac);
 
@@ -197,6 +214,7 @@ static void acfcan_setup(struct net_device *dev)
 	cfg->dstmac[3] = 0xff;
 	cfg->dstmac[4] = 0xff;
 	cfg->dstmac[5] = 0xff;
+	cfg->netdev = NULL;
 }
 
 static void acfcan_remove(struct net_device *dev)
