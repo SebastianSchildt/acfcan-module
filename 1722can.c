@@ -33,15 +33,7 @@ MODULE_ALIAS_RTNL_LINK(DRV_NAME);
 
 char *version = "2016";
 
-static ssize_t dstmac_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct net_device *net_dev = to_net_dev(dev);
-	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
 
-	return sprintf(buf, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx", cfg->dstmac[0],cfg->dstmac[1],cfg->dstmac[2],cfg->dstmac[3],cfg->dstmac[4],cfg->dstmac[5]);
-}
-
-//todo: filter out newlines from echo? Best pattern here?
 static ssize_t dstmac_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	if (count == 1 && *buf == '\n') {
@@ -61,10 +53,61 @@ static ssize_t dstmac_store(struct device *dev, struct device_attribute *attr, c
 	printk(KERN_INFO "ACF-CAN: Setting destination MAC for %s to %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx \n", net_dev->name, newmac[0],newmac[1],newmac[2],newmac[3],newmac[4],newmac[5]);
 	return 17;
 }
+
+static ssize_t dstmac_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct net_device *net_dev = to_net_dev(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
+
+	return sprintf(buf, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx", cfg->dstmac[0],cfg->dstmac[1],cfg->dstmac[2],cfg->dstmac[3],cfg->dstmac[4],cfg->dstmac[5]);
+}
+
+static ssize_t ethif_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	if (count == 1 && *buf == '\n') {
+		return 1;
+	}
+
+	struct net_device *net_dev = to_net_dev(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
+
+	struct net_device *ethif;
+
+	if (cfg->netdev) {
+		netdev_put(cfg->netdev,&cfg->tracker);
+	}
+	ethif = netdev_get_by_name(&init_net, buf, &cfg->tracker, GFP_KERNEL);
+	
+	if (!ethif) {
+		printk(KERN_INFO "ACF-CAN Can not use interface %s for %s\n", buf,net_dev->name);
+		return count;
+	}
+
+	cfg->netdev=ethif;
+	printk(KERN_INFO "ACF-CAN Using interface %s for %s\n", buf,net_dev->name);
+	return count;
+}
+
+static ssize_t ethif_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct net_device *net_dev = to_net_dev(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
+
+	if (cfg->netdev) {
+		return sprintf(buf, "%s", cfg->netdev->name);
+	} else {
+		buf[0] = '\0';
+		return 0;
+	}
+}
+
 static DEVICE_ATTR_RW(dstmac);
+static DEVICE_ATTR_RW(ethif);
+
 
 static struct attribute *dev_attrs[] = {
     &dev_attr_dstmac.attr,
+	&dev_attr_ethif.attr,
     NULL, /* NULL-terminated list */
 };
 
@@ -217,18 +260,22 @@ static void acfcan_setup(struct net_device *dev)
 	cfg->netdev = NULL;
 }
 
-static void acfcan_remove(struct net_device *dev)
+static void acfcan_remove(struct net_device *dev, struct list_head *head)
 {
 	// Remove the custom sysfs attribute
 	device_remove_file(&dev->dev, &dev_attr_dstmac);
+	struct acfcan_cfg *cfg =  get_acfcan_cfg(dev);
+	if (cfg->netdev) {
+		netdev_put(cfg->netdev, &cfg->tracker);
+	}
+	unregister_netdevice(dev);
+	printk(KERN_INFO "ACF-CAN remove interface %s\n", dev->name);
 }
 
 static int acfcan_newlink(struct net *net, struct net_device *dev,
                       struct nlattr *tb[], struct nlattr *data[],
                       struct netlink_ext_ack *extack)
 {
-
-
 
     void *canpriv = can_get_ml_priv(dev);
 	printk(KERN_INFO "Newlink for device %s, priv is at %p \n", dev->name, canpriv);
@@ -256,6 +303,7 @@ static struct rtnl_link_ops acfcan_link_ops __read_mostly = {
 	.priv_size = sizeof(struct can_ml_priv)+sizeof(struct acfcan_cfg),
 	.setup = acfcan_setup,
 	.newlink = acfcan_newlink,
+	.dellink = acfcan_remove,
 };
 
 static int __init init_acfcan(void)
@@ -269,12 +317,6 @@ static int __init init_acfcan(void)
 	{
 		pr_info("Unsupported 1722 version %s\n", version);
 		return -1;
-	}
-	int rc = init_net_dev(NETDEV, &ether_dev);
-	if (rc != 0)
-	{
-		printk(KERN_ERR "Failed to initialize network device\n");
-		return rc;
 	}
 
 	return rtnl_link_register(&acfcan_link_ops);

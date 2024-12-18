@@ -10,18 +10,6 @@
 
 
 
-int init_net_dev(char *name, struct net_device **dev)
-{
-    // Find the network device
-    *dev = dev_get_by_name(&init_net, name);
-    if (!dev) {
-        printk(KERN_ERR "Device not found\n");
-        return -ENODEV;
-    }
-
-    return 0;
-}
-
 int send_canfd_frame(struct net_device *ether_dev, struct net_device *can_dev, struct canfd_frame *cfd)
 {
  	canid_t id = cfd->can_id;
@@ -42,22 +30,15 @@ int send_canfd_frame(struct net_device *ether_dev, struct net_device *can_dev, s
     printk(KERN_CONT "\n");
 
     struct acfcan_cfg *cfg = get_acfcan_cfg(can_dev);
-    void *canpriv = can_get_ml_priv(can_dev);
     
-    //printk(KERN_INFO "can Pointer is %i\n", (unsigned int)canpriv);
-    //printk(KERN_INFO "My  Pointer is %i, sizeof can priv is %i \n", (unsigned int)cfg, sizeof(struct can_ml_priv));
-    int calc = (__u8 *)(canpriv)+sizeof(struct can_ml_priv);
-    //printk(KERN_INFO "My  data at %p\n", calc);
-
-
     __u8 *mac = cfg->dstmac;
-    /*printk(KERN_INFO " BCAST Mac: ");
+    printk(KERN_INFO " dst Mac: ");
     for (int i = 0; i < 6; i++)
     {
         printk(KERN_CONT "%02x ", *(mac+i));
     }
     printk(KERN_CONT "\n");
-    */
+    
 
     return 0;
 }
@@ -110,7 +91,7 @@ int send_can_frame(struct net_device *ether_dev, struct net_device *can_dev, str
 
     uint8_t *bcast = ether_dev->broadcast;
     printk(KERN_INFO " BCAST Mac: ");
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 6; i++)
     {
         printk(KERN_CONT "%02x ", *(bcast+i));
     }
