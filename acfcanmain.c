@@ -1,5 +1,37 @@
+/* acfcan.c - Virtual IEEE 1722 acf-can CAN interface
+ *
+ * Copyright (c) 2024 COVESA Open1722
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *    * Redistributions of source code must retain the above copyright notice,
+ *      this list of conditions and the following disclaimer.
+ *    * Redistributions in binary form must reproduce the above copyright
+ *      notice, this list of conditions and the following disclaimer in the
+ *      documentation and/or other materials provided with the distribution.
+ *    * Neither the name of COVESA nor the names of its contributors may be 
+ *      used to endorse or promote products derived from this software without
+ *      specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+//TODO Add GPL exception like vcan and modify SPDX with OR
+
 #include <linux/init.h>
-#include <linux/module.h>
 #include <linux/uaccess.h>
 
 #include <linux/if_arp.h>
@@ -17,19 +49,8 @@
 #include "1722ethernet.h"
 #include "acfcandev.h"
 
-#define DRV_NAME "acfcan"
+#include "acfcanmodulemetadata.h"
 
-#define NETDEV "enp0s31f6"
-// #define NETDEV "lo"
-
-// Module metadata
-MODULE_AUTHOR("Sebastian Schildt");
-MODULE_DESCRIPTION("IEEE-1722 ACF-CAN bridge");
-
-MODULE_LICENSE("Dual BSD/GPL");
-// MODULE_LICENSE("Proprieatary");
-
-MODULE_ALIAS_RTNL_LINK(DRV_NAME);
 
 char *version = "2016";
 
@@ -211,9 +232,27 @@ static int acfcan_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+// Todo only try to reserve eth device here. not in newlink
+// or sysfs
+static int acfcan_open(struct net_device *dev)
+{
+	//netif_start_queue(dev);
+	printk(KERN_INFO "ACF-CAN interface %s up\n", dev->name);
+	return 0;
+}
+
+static int acfcan_close(struct net_device *dev)
+{
+	//netif_stop_queue(dev);
+	printk(KERN_INFO "ACF-CAN interface %s down\n", dev->name);
+	return 0;
+}
+
 static const struct net_device_ops acfcan_netdev_ops = {
 	.ndo_start_xmit = acfcan_tx,
 	.ndo_change_mtu = acfcan_change_mtu,
+	.ndo_open = acfcan_open,
+	.ndo_stop = acfcan_close,
 };
 
 static const struct ethtool_ops acfcan_ethtool_ops = {
