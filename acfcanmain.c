@@ -54,6 +54,24 @@
 
 char *version = "2016";
 
+#define IEEE1722_PROTO 0x22f0
+
+static struct packet_type ieee1722_packet_type;
+
+
+static int ieee1722_packet_handdler(struct sk_buff *skb, struct net_device *dev,
+		   struct packet_type *pt, struct net_device *orig_dev)
+{
+    struct ethhdr *eth = eth_hdr(skb);
+
+    printk(KERN_INFO "Received packet: src=%pM, dst=%pM, proto=0x%04x\n",
+           eth->h_source, eth->h_dest, ntohs(eth->h_proto));
+
+    // Process the packet here
+
+    //return RX_HANDLER_PASS; // Pass the packet to the next handler
+	return NET_RX_SUCCESS; 
+}
 
 static ssize_t dstmac_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -354,12 +372,19 @@ static int __init init_acfcan(void)
 		return -1;
 	}
 
+	//Todo need per device ....
+	ieee1722_packet_type.type = htons(IEEE1722_PROTO);
+	ieee1722_packet_type.func = ieee1722_packet_handdler;
+	ieee1722_packet_type.dev = NULL;
+	dev_add_pack(&ieee1722_packet_type);
+
 	return rtnl_link_register(&acfcan_link_ops);
 }
 
 static void __exit cleanup_acfcan(void)
 {
 	pr_info("Unloading ACF-CAN\n");
+	dev_remove_pack(&ieee1722_packet_type);
 	rtnl_link_unregister(&acfcan_link_ops);
 }
 
