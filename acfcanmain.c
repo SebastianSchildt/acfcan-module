@@ -58,7 +58,28 @@ char *version = "2016";
 
 static struct packet_type ieee1722_packet_type;
 
+struct list_head acfcaninterface_list;
 
+
+static struct attribute_group dev_attr_group = {
+    .name = "acfcan", /* Subdirectory name in sysfs */
+    .attrs = (struct attribute **)dev_attrs,
+};
+
+
+
+/* rocessing Outcome:
+
+If a handler returns NET_RX_SUCCESS, the packet is considered successfully processed, and no further handlers are called.
+If a handler returns NET_RX_DROP, the packet is dropped, and no further handlers are called.
+If a handler returns NET_RX_BAD or any other value, the network stack continues to the next handler in the list.
+* Logic shoudl be: 
+* Check whether this is an 1722 ACF-CAN packet. If not: NET_RX_BAD
+* If it is:  Extract receving if and streamid. If we have
+* an interface for that, extract can and forward. In case of problems
+* NET_RX_DROP.
+* If all done NET_RX_SUCCESS
+*/
 static int ieee1722_packet_handdler(struct sk_buff *skb, struct net_device *dev,
 		   struct packet_type *pt, struct net_device *orig_dev)
 {
@@ -67,93 +88,19 @@ static int ieee1722_packet_handdler(struct sk_buff *skb, struct net_device *dev,
     printk(KERN_INFO "Received packet: src=%pM, dst=%pM, proto=0x%04x\n",
            eth->h_source, eth->h_dest, ntohs(eth->h_proto));
 
-    // Process the packet here
+	//Iterate over all active devices
+	struct list_head *pos = NULL ; 
+	struct acfcan_cfg  *cfg  = NULL ; 
+	list_for_each ( pos , &acfcaninterface_list ) 
+    { 
+         cfg = list_entry ( pos, struct acfcan_cfg , list ); 
+         printk ("Active, if=%s, stream=%04x\n" , cfg->ethif, cfg->streamid); 
+    }
 
+    // Process the packet here
     //return RX_HANDLER_PASS; // Pass the packet to the next handler
 	return NET_RX_SUCCESS; 
 }
-
-static ssize_t dstmac_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	if (count == 1 && *buf == '\n') {
-		return 1;
-	}
-	struct net_device *net_dev = to_net_dev(dev);
-	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
-
-	// Handle the input value here
-	__u8 newmac[6] = {0,1,2,3,4,5};
-	int rc = sscanf(buf,"%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",&newmac[0],&newmac[1],&newmac[2],&newmac[3],&newmac[4],&newmac[5]);
-	if (rc != 6) {
-		printk(KERN_INFO "ACF-CAN Can not set destination MAC for %s. to %s\n", net_dev->name,buf);
-		return count;
-	}
-	memcpy(cfg->dstmac, newmac, 6);
-	printk(KERN_INFO "ACF-CAN: Setting destination MAC for %s to %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx \n", net_dev->name, newmac[0],newmac[1],newmac[2],newmac[3],newmac[4],newmac[5]);
-	return 17;
-}
-
-static ssize_t dstmac_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct net_device *net_dev = to_net_dev(dev);
-	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
-
-	return sprintf(buf, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx", cfg->dstmac[0],cfg->dstmac[1],cfg->dstmac[2],cfg->dstmac[3],cfg->dstmac[4],cfg->dstmac[5]);
-}
-
-static ssize_t ethif_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	if (count == 1 && *buf == '\n') {
-		return 1;
-	}
-
-	struct net_device *net_dev = to_net_dev(dev);
-	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
-
-	struct net_device *ethif;
-
-	if (cfg->netdev) {
-		netdev_put(cfg->netdev,&cfg->tracker);
-	}
-	ethif = netdev_get_by_name(&init_net, buf, &cfg->tracker, GFP_KERNEL);
-	
-	if (!ethif) {
-		printk(KERN_INFO "ACF-CAN Can not use interface %s for %s\n", buf,net_dev->name);
-		return count;
-	}
-
-	cfg->netdev=ethif;
-	printk(KERN_INFO "ACF-CAN Using interface %s for %s\n", buf,net_dev->name);
-	return count;
-}
-
-static ssize_t ethif_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct net_device *net_dev = to_net_dev(dev);
-	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
-
-	if (cfg->netdev) {
-		return sprintf(buf, "%s", cfg->netdev->name);
-	} else {
-		buf[0] = '\0';
-		return 0;
-	}
-}
-
-static DEVICE_ATTR_RW(dstmac);
-static DEVICE_ATTR_RW(ethif);
-
-
-static struct attribute *dev_attrs[] = {
-    &dev_attr_dstmac.attr,
-	&dev_attr_ethif.attr,
-    NULL, /* NULL-terminated list */
-};
-
-static struct attribute_group dev_attr_group = {
-    .name = "acfcan", /* Subdirectory name in sysfs */
-    .attrs = (struct attribute **)dev_attrs,
-};
 
 
 static void acfcan_rx(struct sk_buff *skb, struct net_device *dev)
@@ -252,16 +199,36 @@ static int acfcan_change_mtu(struct net_device *dev, int new_mtu)
 
 // Todo only try to reserve eth device here. not in newlink
 // or sysfs
-static int acfcan_open(struct net_device *dev)
+static int acfcan_up(struct net_device *dev)
 {
 	//netif_start_queue(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(dev);
+
+	//chek we have an a valid ethernet device
+	struct net_device *ethif;
+
+	ethif = netdev_get_by_name(&init_net, cfg->ethif, &cfg->tracker, GFP_KERNEL);
+	
+	if (!ethif) {
+		printk(KERN_INFO "ACF-CAN Can not use interface %s for %s\n", cfg->ethif,dev->name);
+		return -EINVAL;
+	}
+
+	cfg->netdev=ethif;
+
+	list_add(&acfcaninterface_list, &cfg->list);
 	printk(KERN_INFO "ACF-CAN interface %s up\n", dev->name);
 	return 0;
 }
 
-static int acfcan_close(struct net_device *dev)
+static int acfcan_down(struct net_device *dev)
 {
-	//netif_stop_queue(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(dev);
+	if (cfg->netdev) {
+		netdev_put(cfg->netdev, &cfg->tracker);
+	}
+	list_del(&cfg->list);
+    INIT_LIST_HEAD(&cfg->list);
 	printk(KERN_INFO "ACF-CAN interface %s down\n", dev->name);
 	return 0;
 }
@@ -269,8 +236,8 @@ static int acfcan_close(struct net_device *dev)
 static const struct net_device_ops acfcan_netdev_ops = {
 	.ndo_start_xmit = acfcan_tx,
 	.ndo_change_mtu = acfcan_change_mtu,
-	.ndo_open = acfcan_open,
-	.ndo_stop = acfcan_close,
+	.ndo_open = acfcan_up,
+	.ndo_stop = acfcan_down,
 };
 
 static const struct ethtool_ops acfcan_ethtool_ops = {
@@ -311,8 +278,11 @@ static void acfcan_setup(struct net_device *dev)
 	cfg->dstmac[4] = 0xff;
 	cfg->dstmac[5] = 0xff;
 	cfg->netdev = NULL;
+	cfg->ethif[0] = '\0';  //this is a string so setting first byte to 0 is fine
+	INIT_LIST_HEAD( & cfg->list);
 }
 
+//is this deleting or downing the interfae?
 static void acfcan_remove(struct net_device *dev, struct list_head *head)
 {
 	// Remove the custom sysfs attribute
@@ -321,7 +291,9 @@ static void acfcan_remove(struct net_device *dev, struct list_head *head)
 	if (cfg->netdev) {
 		netdev_put(cfg->netdev, &cfg->tracker);
 	}
+
 	unregister_netdevice(dev);
+
 	printk(KERN_INFO "ACF-CAN remove interface %s\n", dev->name);
 }
 
@@ -350,6 +322,7 @@ static int acfcan_newlink(struct net *net, struct net_device *dev,
 	return 0;
 }
 
+
 //	.dellink = acfcan_remove, ?
 static struct rtnl_link_ops acfcan_link_ops __read_mostly = {
 	.kind = DRV_NAME,
@@ -372,7 +345,7 @@ static int __init init_acfcan(void)
 		return -1;
 	}
 
-	//Todo need per device ....
+	//We want all the 1722 packets. <
 	ieee1722_packet_type.type = htons(IEEE1722_PROTO);
 	ieee1722_packet_type.func = ieee1722_packet_handdler;
 	ieee1722_packet_type.dev = NULL;
@@ -384,6 +357,7 @@ static int __init init_acfcan(void)
 static void __exit cleanup_acfcan(void)
 {
 	pr_info("Unloading ACF-CAN\n");
+	INIT_LIST_HEAD(&acfcaninterface_list);
 	dev_remove_pack(&ieee1722_packet_type);
 	rtnl_link_unregister(&acfcan_link_ops);
 }
