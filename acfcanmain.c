@@ -94,7 +94,7 @@ static int ieee1722_packet_handdler(struct sk_buff *skb, struct net_device *dev,
 	list_for_each ( pos , &acfcaninterface_list ) 
     { 
          cfg = list_entry ( pos, struct acfcan_cfg , list ); 
-         printk ("Active, if=%s, stream=%04x\n" , cfg->ethif, cfg->streamid); 
+         printk ("Active, if=%s, stream=%016llxx\n" , cfg->ethif, cfg->streamid); 
     }
 
     // Process the packet here

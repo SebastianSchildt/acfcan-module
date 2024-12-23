@@ -12,7 +12,7 @@ struct acfcan_cfg
 { 
     struct list_head list; //we need a list so we can map received ethernet packets
     __u8 dstmac[6]; //send acf-can frames to this mac
-    __u16 streamid; //use acf-can stream-id
+    __u64 streamid; //use acf-can stream-id
     char ethif[IFNAMSIZ];
     struct net_device *netdev; //use this interface for acf-can frames
     netdevice_tracker tracker;
@@ -103,14 +103,57 @@ static ssize_t ethif_show(struct device *dev, struct device_attribute *attr, cha
 	}
 }
 
+static ssize_t streamid_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	if (count == 1 && *buf == '\n') {
+		return 1;
+	}
+
+	struct net_device *net_dev = to_net_dev(dev);
+
+	// Check if the device is up
+    if (netif_running(net_dev)) {
+        printk(KERN_INFO "ACF-CAN: Cannot change stream id while device %s is up\n", net_dev->name);
+        return -EBUSY; // Return an appropriate error code
+    }
+
+
+	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
+
+    __u64 streamid;
+    int rc = sscanf(buf, "%llx", &streamid);
+    if (!rc) {
+        printk(KERN_INFO "ACF-CAN: Invalid stream id\n");
+        return -EINVAL;
+    }
+
+    cfg->streamid = streamid;
+
+
+	printk(KERN_INFO "ACF-CAN setting streamid 0x%016llx for %s\n", streamid,net_dev->name);
+	return count;
+}
+
+
+static ssize_t streamid_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct net_device *net_dev = to_net_dev(dev);
+	struct acfcan_cfg *cfg = get_acfcan_cfg(net_dev);
+
+	return sprintf(buf, "0x%016llx", cfg->streamid);
+}
+
+
+
 static DEVICE_ATTR_RW(dstmac);
 static DEVICE_ATTR_RW(ethif);
-//static DEVICE_ATTR_RW(streamid);
+static DEVICE_ATTR_RW(streamid);
 
 
 
 static struct attribute *dev_attrs[] = {
     &dev_attr_dstmac.attr,
 	&dev_attr_ethif.attr,
+    &dev_attr_streamid.attr,
     NULL, /* NULL-terminated list */
 };
